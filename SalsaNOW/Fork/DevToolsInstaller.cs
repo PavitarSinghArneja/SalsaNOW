@@ -76,6 +76,11 @@ namespace SalsaNOW
 
             string[] pathDirs = { nodeDir, npmPrefix, gitCmd };
             await RunStep("PATH", () => AddToUserPathAsync(pathDirs));
+            await RunStep("Terminal PATH", () =>
+            {
+                AddToTerminalStartup(pathDirs);
+                return Task.CompletedTask;
+            });
 
             await RunStep("OpenCode shortcut", () =>
             {
@@ -253,6 +258,55 @@ namespace SalsaNOW
             }
 
             throw new InvalidOperationException("PATH kept getting overwritten.");
+        }
+
+        private const string ProfileBlockStart = "# >>> SalsaNOW DevTools (added automatically) >>>";
+        private const string ProfileBlockEnd = "# <<< SalsaNOW DevTools <<<";
+        private const string CmdAutoRunMarker = "SALSANOW_DEVTOOLS";
+
+        // The GFN desktop shell ignores PATH change broadcasts, so terminals it opens keep the old PATH.
+        // PowerShell 7's profile and cmd's AutoRun run inside every new terminal, so they add the folders there.
+        private static void AddToTerminalStartup(string[] directories)
+        {
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string list = string.Join(", ", directories.Select(d => "'" + d.Replace("'", "''") + "'"));
+            WriteMarkedBlock(Path.Combine(documents, "PowerShell", "profile.ps1"), string.Join(Environment.NewLine, new[]
+            {
+                ProfileBlockStart,
+                "foreach ($d in @(" + list + ")) { if (($env:Path -split ';') -notcontains $d) { $env:Path = \"$d;$env:Path\" } }",
+                ProfileBlockEnd
+            }));
+
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Command Processor"))
+            {
+                string existing = Convert.ToString(key.GetValue("AutoRun", ""));
+                if (existing.Length > 0 && !existing.Contains(CmdAutoRunMarker))
+                {
+                    Log("cmd AutoRun is already used by something else; leaving it alone.");
+                    return;
+                }
+
+                // The marker variable stops nested cmd windows from adding the folders again
+                key.SetValue("AutoRun",
+                    $"if not defined {CmdAutoRunMarker} set \"PATH={string.Join(";", directories)};%PATH%\" & set {CmdAutoRunMarker}=1",
+                    RegistryValueKind.String);
+            }
+        }
+
+        // Replaces our marked block in a file, or appends it, leaving everything else in the file untouched.
+        private static void WriteMarkedBlock(string file, string block)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            string text = File.Exists(file) ? File.ReadAllText(file) : "";
+
+            int start = text.IndexOf(ProfileBlockStart, StringComparison.Ordinal);
+            int end = start < 0 ? -1 : text.IndexOf(ProfileBlockEnd, start, StringComparison.Ordinal);
+            if (start >= 0 && end >= 0)
+                text = text.Remove(start, end + ProfileBlockEnd.Length - start).Insert(start, block);
+            else
+                text = (text.Length == 0 || text.EndsWith("\n") ? text : text + Environment.NewLine) + block + Environment.NewLine;
+
+            File.WriteAllText(file, text);
         }
 
         private static string WriteLauncher(string devRoot, string[] pathDirs, string workDir)
