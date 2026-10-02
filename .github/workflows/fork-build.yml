@@ -4,7 +4,7 @@ on:
   push:
     branches: [master, 'claude/**']
   workflow_dispatch:
-  # Used by sync-upstream.yml to build a merged commit and publish it only if it compiles
+  # Used by fork-sync-upstream.yml to build a merged commit and publish it only if it compiles
   workflow_call:
     inputs:
       ref:

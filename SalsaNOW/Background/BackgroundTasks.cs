@@ -309,7 +309,7 @@ namespace SalsaNOW
             });
         }
 
-        public static void EnvironmentSetup(string globalDirectory)
+        public static void EnvironmentSetup()
         {
             try
             {
@@ -321,8 +321,6 @@ namespace SalsaNOW
                     "dotnet");
 
                 string powershellRoot = @"I:\Apps\SalsaNOW\SilentApps\PowerShell";
-                string nodeRoot = DevToolsInstaller.NodeDirectory(globalDirectory);
-                string npmPrefix = DevToolsInstaller.NpmPrefix(globalDirectory);
 
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey("Environment"))
                 {
@@ -338,8 +336,6 @@ namespace SalsaNOW
                     string path = key.GetValue("Path", "").ToString();
                     path = AddPathIfMissing(path, dotnetRoot);
                     path = AddPathIfMissing(path, powershellRoot);
-                    path = AddPathIfMissing(path, nodeRoot);
-                    path = AddPathIfMissing(path, npmPrefix);
 
                     key.SetValue("Path", path, RegistryValueKind.ExpandString);
                     key.Flush();
@@ -353,8 +349,6 @@ namespace SalsaNOW
                 string currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
                 currentPath = AddPathIfMissing(currentPath, dotnetRoot);
                 currentPath = AddPathIfMissing(currentPath, powershellRoot);
-                currentPath = AddPathIfMissing(currentPath, nodeRoot);
-                currentPath = AddPathIfMissing(currentPath, npmPrefix);
 
                 Environment.SetEnvironmentVariable("PATH", currentPath);
 
