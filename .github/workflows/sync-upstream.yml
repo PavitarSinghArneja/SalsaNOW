@@ -1,0 +1,88 @@
+name: Sync with original SalsaNOW
+
+# Every hour: pull new commits from dpadGuy/SalsaNOW into this fork, keep the
+# Node.js/OpenCode feature on top, build it, and publish the exe only if it builds.
+# On a merge conflict or a failed build nothing is published: the branch and the
+# download link keep the last working version, and the failed run is emailed.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  WORK_BRANCH: claude/repo-deep-dive-il1rwm
+  SYNC_BRANCH: upstream-sync
+  UPSTREAM: https://github.com/dpadGuy/SalsaNOW
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      # GitHub switches off schedules after 60 days without repo activity; re-enabling resets that
+      - name: Keep this schedule switched on
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/sync-upstream.yml/enable" || true
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.WORK_BRANCH }}
+          fetch-depth: 0
+
+      - name: Check the original repo for new commits
+        id: check
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch "$UPSTREAM" master
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "Already up to date with $UPSTREAM"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git log --oneline HEAD..FETCH_HEAD
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          if ! git merge --no-ff FETCH_HEAD -m "Merge upstream dpadGuy/SalsaNOW"; then
+            git status --short
+            echo "::error::The original SalsaNOW changed the same code as the Node/OpenCode feature. Nothing was published; this needs a manual merge."
+            exit 1
+          fi
+
+      - name: Check the Node/OpenCode feature is still wired in
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          grep -qF 'InstallTasks\DevToolsInstaller.cs' SalsaNOW/SalsaNOW.csproj
+          grep -qF 'DevToolsInstaller.InstallAsync(globalDirectory)' SalsaNOW/Program.cs
+          grep -qF 'EnvironmentSetup(globalDirectory)' SalsaNOW/Program.cs
+
+      - name: Push the merged version for building
+        id: push
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # Builds the merged commit; only on success does it move the branch and update the download link
+  build:
+    needs: merge
+    if: needs.merge.outputs.changed == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.merge.outputs.sha }}
+      publish_branch: claude/repo-deep-dive-il1rwm
+    secrets: inherit

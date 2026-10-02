@@ -4,6 +4,19 @@ on:
   push:
     branches: [master, 'claude/**']
   workflow_dispatch:
+  # Used by sync-upstream.yml to build a merged commit and publish it only if it compiles
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      publish_branch:
+        description: Branch to move to the built commit after a successful build
+        type: string
+        default: ''
+      log_name:
+        type: string
+        default: build-log
 
 permissions:
   contents: write
@@ -13,6 +26,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
 
       - uses: microsoft/setup-msbuild@v2
 
@@ -22,12 +38,25 @@ jobs:
         run: nuget restore SalsaNOW.sln -PackagesDirectory packages -NonInteractive
 
       - name: Build (Release)
-        run: msbuild SalsaNOW\SalsaNOW.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
+        run: msbuild SalsaNOW\SalsaNOW.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal /fl "/flp:logfile=msbuild.log;verbosity=normal"
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.log_name || 'build-log' }}
+          path: msbuild.log
 
       - uses: actions/upload-artifact@v4
         with:
           name: SalsaNOW
           path: SalsaNOW/bin/Release/SalsaNOW.exe
+          overwrite: true
+
+      - name: Move ${{ inputs.publish_branch }} to this commit
+        if: inputs.publish_branch != ''
+        shell: bash
+        run: git push origin "HEAD:refs/heads/${{ inputs.publish_branch }}"
 
       # Keeps a fixed download link: /releases/latest/download/SalsaNOW.exe
       - name: Publish to the latest release
@@ -35,6 +64,6 @@ jobs:
         with:
           tag_name: latest-build
           name: Latest build
-          body: Built automatically from ${{ github.ref_name }} at ${{ github.sha }}.
+          body: Built automatically from ${{ inputs.ref || github.sha }}.
           make_latest: true
           files: SalsaNOW/bin/Release/SalsaNOW.exe
