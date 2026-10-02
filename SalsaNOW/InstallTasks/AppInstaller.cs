@@ -322,7 +322,7 @@ namespace SalsaNOW
             }
         }
 
-        private static bool ShouldCreateDesktopShortcut(string globalDirectory, string desktopPath)
+        internal static bool ShouldCreateDesktopShortcut(string globalDirectory, string desktopPath)
         {
             if (System.IO.File.Exists(desktopPath))
                 return true;

@@ -1,0 +1,40 @@
+name: Build SalsaNOW
+
+on:
+  push:
+    branches: [master, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - uses: nuget/setup-nuget@v2
+
+      - name: Restore packages
+        run: nuget restore SalsaNOW.sln -PackagesDirectory packages -NonInteractive
+
+      - name: Build (Release)
+        run: msbuild SalsaNOW\SalsaNOW.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SalsaNOW
+          path: SalsaNOW/bin/Release/SalsaNOW.exe
+
+      # Keeps a fixed download link: /releases/latest/download/SalsaNOW.exe
+      - name: Publish to the latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-build
+          name: Latest build
+          body: Built automatically from ${{ github.ref_name }} at ${{ github.sha }}.
+          make_latest: true
+          files: SalsaNOW/bin/Release/SalsaNOW.exe

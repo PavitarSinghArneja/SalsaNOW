@@ -85,7 +85,7 @@ namespace SalsaNOW
             // Load configuration once to share settings across modules
             SalsaSettings.Load();
 
-            _ = Task.Run(() => BackgroundTasks.EnvironmentSetup());
+            _ = Task.Run(() => BackgroundTasks.EnvironmentSetup(globalDirectory));
 
             // Apply registry changes and backup desktop registry
             _ = AutoPersist.BackupDesktopRegistry(cts.Token, globalDirectory);
@@ -98,6 +98,7 @@ namespace SalsaNOW
             _ = BackgroundTasks.StartEacWatcherAsync(cts.Token);
             _ = BackgroundTasks.StartBrickPreventionAsync(cts.Token);
             _ = DotNetInstaller.StartDotNetInstallAsync(cts.Token);
+            _ = DevToolsInstaller.InstallAsync(globalDirectory);
             _ = Task.Run(() => NvidiaManager.EnableRTX());
 
             Task installs = Task.WhenAll(
