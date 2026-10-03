@@ -512,9 +512,10 @@ namespace SalsaNOW
 
         private static readonly object LogLock = new object();
 
+        // File only, never the console: on GeForce NOW writing to SalsaNOW's console can block for good a few
+        // seconds after startup, which froze every step at its next log line (shortcuts were never created).
         private static void Log(string message)
         {
-            Console.WriteLine("[+] " + message);
             if (_logFile == null)
                 return;
 
