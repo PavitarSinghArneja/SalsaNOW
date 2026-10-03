@@ -468,7 +468,7 @@ namespace SalsaNOW
         }
 
         // Shown in a window of its own: GeForce NOW does not let Notepad open
-        private void OpenLog(string file)
+        private static string ReadLog(string file)
         {
             string text;
             try
@@ -485,7 +485,11 @@ namespace SalsaNOW
             {
                 text = "Could not read " + file + ": " + ex.Message;
             }
+            return text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        }
 
+        private void OpenLog(string file)
+        {
             var viewer = new Form
             {
                 Text = Path.GetFileName(file) + " - SalsaNOW Backups",
@@ -502,12 +506,16 @@ namespace SalsaNOW
                 WordWrap = false,
                 Dock = DockStyle.Fill,
                 BackColor = SystemColors.Window,
-                Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n")
+                Text = ReadLog(file)
             };
-            var copy = new Button { Text = "Copy all", Dock = DockStyle.Bottom, Height = 32, Font = Font };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Font = Font };
+            var refresh = new Button { Text = "Refresh", AutoSize = true };
+            refresh.Click += (s, e) => { box.Text = ReadLog(file); box.SelectionStart = box.TextLength; box.ScrollToCaret(); };
+            var copy = new Button { Text = "Copy all", AutoSize = true };
             copy.Click += (s, e) => { try { Clipboard.SetText(box.Text.Length > 0 ? box.Text : " "); } catch { } };
+            buttons.Controls.AddRange(new Control[] { refresh, copy });
             viewer.Controls.Add(box);
-            viewer.Controls.Add(copy);
+            viewer.Controls.Add(buttons);
             viewer.Shown += (s, e) => { box.SelectionStart = box.TextLength; box.ScrollToCaret(); };
             viewer.Show(this);
         }

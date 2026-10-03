@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SalsaNOW
@@ -55,79 +56,115 @@ namespace SalsaNOW
                 return;
             }
 
-            // Each tool is independent: one failing never stops the others.
-            // Task.Run so each starts right away and nothing below can hold the others up.
+            string[] pathDirs = { nodeDir, npmPrefix, gitCmd, ghBin };
+
+            // Each tool is independent and starts right away: one failing or hanging never holds up the others.
             Task node = Task.Run(() => RunStep("Node.js", async () =>
             {
                 if (!File.Exists(Path.Combine(nodeDir, "node.exe")))
                     await InstallNodeAsync(devRoot, nodeDir);
-                Log("Node.js ready.");
             }));
 
-            Task git = Task.Run(() => RunStep("Git", async () =>
+            Task openCode = Task.Run(async () =>
             {
-                if (!File.Exists(Path.Combine(gitCmd, "git.exe")))
-                    await InstallGitAsync(devRoot, gitDir);
-                Log("Git ready.");
-            }));
+                await node;
+                await RunStep("OpenCode", async () =>
+                {
+                    if (File.Exists(Path.Combine(npmPrefix, "opencode.cmd")))
+                        return;
+                    if (!File.Exists(Path.Combine(nodeDir, "node.exe")))
+                        throw new InvalidOperationException("Node.js is missing, skipping OpenCode.");
+                    await InstallOpenCodeAsync(nodeDir, npmPrefix, gitCmd);
+                });
+                await RunStep("OpenCode shortcut", () =>
+                {
+                    if (File.Exists(Path.Combine(npmPrefix, "opencode.cmd")))
+                        CreateDesktopShortcut(globalDirectory, "OpenCode", WriteLauncher(devRoot, pathDirs, workDir), workDir);
+                    return Task.CompletedTask;
+                });
+            });
 
-            // The Backups app opens on its own (it fetches the GitHub CLI itself and then asks for the login code).
-            // It never delays Node, Git or OpenCode.
-            _ = Task.Run(() => RunStep("Backups", () =>
+            Task git = Task.Run(async () =>
+            {
+                await RunStep("Git", async () =>
+                {
+                    if (!File.Exists(Path.Combine(gitCmd, "git.exe")))
+                        await InstallGitAsync(devRoot, gitDir);
+                });
+                await RunStep("Git Bash shortcut", () =>
+                {
+                    string gitBash = Path.Combine(gitDir, "git-bash.exe");
+                    if (File.Exists(gitBash))
+                        CreateDesktopShortcut(globalDirectory, "Git Bash", gitBash, workDir);
+                    return Task.CompletedTask;
+                });
+            });
+
+            // The Backups app opens on its own (it fetches the GitHub CLI itself and then asks for the login code)
+            Task backups = Task.Run(() => RunStep("Backups app", () =>
             {
                 if (BackupsApp.Start(devRoot))
                     CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true, icon: BackupsApp.WriteIconFile(devRoot));
-                Log("Backups app started.");
                 return Task.CompletedTask;
             }));
 
-            await node;
-            await RunStep("OpenCode", async () =>
+            // PATH is set up front: folders that don't exist yet are harmless, and this way each tool works in
+            // new terminals as soon as it is installed instead of only after all of them are.
+            Task paths = Task.Run(async () =>
             {
-                if (File.Exists(Path.Combine(npmPrefix, "opencode.cmd")))
-                    return;
-                if (!File.Exists(Path.Combine(nodeDir, "node.exe")))
-                    throw new InvalidOperationException("Node.js is missing, skipping OpenCode.");
-                await InstallOpenCodeAsync(nodeDir, npmPrefix, gitCmd);
-            });
-            await git;
-
-            string[] pathDirs = { nodeDir, npmPrefix, gitCmd, ghBin };
-            await RunStep("PATH", () => AddToUserPathAsync(pathDirs));
-            await RunStep("Terminal PATH", () =>
-            {
-                AddToTerminalStartup(pathDirs);
-                return Task.CompletedTask;
+                await RunStep("PATH", () => AddToUserPathAsync(pathDirs));
+                await RunStep("Terminal PATH", () =>
+                {
+                    AddToTerminalStartup(pathDirs);
+                    return Task.CompletedTask;
+                });
             });
 
-            await RunStep("OpenCode shortcut", () =>
-            {
-                string launcher = WriteLauncher(devRoot, pathDirs, workDir);
-                CreateDesktopShortcut(globalDirectory, "OpenCode", launcher, workDir);
-                return Task.CompletedTask;
-            });
-
-            await RunStep("Git Bash shortcut", () =>
-            {
-                string gitBash = Path.Combine(gitDir, "git-bash.exe");
-                if (File.Exists(gitBash))
-                    CreateDesktopShortcut(globalDirectory, "Git Bash", gitBash, workDir);
-                return Task.CompletedTask;
-            });
-
-            Log("Node.js, OpenCode, Git and Backups setup finished.");
+            await Task.WhenAll(node, openCode, git, backups, paths);
+            Log("All setup steps finished.");
         }
 
+        // Logs when a step starts, finishes or fails, and once a minute while it is still running,
+        // so a step that hangs is visible in devtools.log.
         private static async Task RunStep(string name, Func<Task> step)
+        {
+            DateTime started = DateTime.Now;
+            using (var stop = new CancellationTokenSource())
+            {
+                _ = HeartbeatAsync(name, started, stop.Token);
+                try
+                {
+                    await step();
+                    Log($"{name}: done ({Elapsed(started)}).");
+                }
+                catch (Exception ex)
+                {
+                    Log($"{name} setup failed after {Elapsed(started)}: {ex.Message}");
+                }
+                finally
+                {
+                    stop.Cancel();
+                }
+            }
+        }
+
+        private static async Task HeartbeatAsync(string name, DateTime started, CancellationToken token)
         {
             try
             {
-                await step();
+                while (true)
+                {
+                    await Task.Delay(60 * 1000, token);
+                    Log($"{name}: still working ({Elapsed(started)})...");
+                }
             }
-            catch (Exception ex)
-            {
-                Log(name + " setup failed: " + ex.Message);
-            }
+            catch (TaskCanceledException) { }
+        }
+
+        private static string Elapsed(DateTime started)
+        {
+            TimeSpan time = DateTime.Now - started;
+            return time.TotalMinutes >= 1 ? $"{(int)time.TotalMinutes} min {time.Seconds} s" : $"{time.TotalSeconds:0.0} s";
         }
 
         // ---------- Wallpaper ----------
@@ -240,7 +277,12 @@ namespace SalsaNOW
             {
                 if (process == null)
                     throw new InvalidOperationException("Could not start the Git extractor.");
-                await Task.Run(() => process.WaitForExit(10 * 60 * 1000));
+                bool exited = await Task.Run(() => process.WaitForExit(10 * 60 * 1000));
+                if (!exited)
+                {
+                    try { process.Kill(); } catch { }
+                    throw new TimeoutException("The Git extractor did not finish within 10 minutes.");
+                }
             }
 
             File.Delete(sfxPath);
@@ -269,7 +311,7 @@ namespace SalsaNOW
 
         private static async Task InstallOpenCodeAsync(string nodeDir, string npmPrefix, string gitCmd)
         {
-            Log("Installing OpenCode...");
+            Log("Installing OpenCode with npm...");
 
             string npmCmd = Path.Combine(nodeDir, "npm.cmd");
             var psi = new ProcessStartInfo
@@ -287,11 +329,25 @@ namespace SalsaNOW
             {
                 Task<string> stdout = process.StandardOutput.ReadToEndAsync();
                 Task<string> stderr = process.StandardError.ReadToEndAsync();
-                await Task.Run(() => process.WaitForExit());
+                bool exited = await Task.Run(() => process.WaitForExit(20 * 60 * 1000));
+                if (!exited)
+                {
+                    try { process.Kill(); } catch { }
+                    throw new TimeoutException("npm did not finish within 20 minutes. Last output: " + Tail(stdout) + " " + Tail(stderr));
+                }
 
                 if (process.ExitCode != 0)
                     throw new InvalidOperationException($"npm exited with code {process.ExitCode}: {(await stderr).Trim()} {(await stdout).Trim()}");
             }
+        }
+
+        // The end of what a process printed so far, or "" if it is still writing
+        private static string Tail(Task<string> output)
+        {
+            if (!output.IsCompleted || output.IsFaulted)
+                return "";
+            string text = output.Result.Trim();
+            return text.Length > 300 ? "..." + text.Substring(text.Length - 300) : text;
         }
 
         // ---------- PATH, launcher and shortcut ----------
