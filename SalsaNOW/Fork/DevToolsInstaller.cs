@@ -127,6 +127,7 @@ namespace SalsaNOW
             {
                 DateTime started = DateTime.Now;
                 DateTime nextAlive = started.AddMinutes(1);
+                string lastError = null;
                 while (DateTime.Now - started < TimeSpan.FromMinutes(45))
                 {
                     try
@@ -139,7 +140,10 @@ namespace SalsaNOW
                     }
                     catch (Exception ex)
                     {
-                        Log("Desktop shortcuts failed: " + ex.Message);
+                        // Logged once per distinct error, not every 5 seconds
+                        if (ex.Message != lastError)
+                            Log("Desktop shortcuts failed: " + ex.Message);
+                        lastError = ex.Message;
                     }
 
                     if (DateTime.Now >= nextAlive)
@@ -160,7 +164,16 @@ namespace SalsaNOW
         // Creates the OpenCode and Git Bash desktop shortcuts if their tools are installed and the shortcut is missing.
         // Returns true once both shortcuts exist (or were deliberately deleted by the user). Also used by the Backups
         // app as a fallback.
+        private static readonly object ShortcutLock = new object();
+
         internal static bool EnsureShortcuts(string globalDirectory)
+        {
+            // The watcher thread and the Backups window both call this; one at a time
+            lock (ShortcutLock)
+                return EnsureShortcutsLocked(globalDirectory);
+        }
+
+        private static bool EnsureShortcutsLocked(string globalDirectory)
         {
             string devRoot = Path.Combine(globalDirectory, "DevTools");
             string workDir = Path.Combine(Path.GetPathRoot(globalDirectory), "Work");
@@ -169,7 +182,8 @@ namespace SalsaNOW
             string[] pathDirs = { Path.Combine(devRoot, "node"), npmPrefix, Path.Combine(devRoot, "git", "cmd"), GhCli.BinDir(devRoot) };
             Directory.CreateDirectory(workDir);
 
-            if (!ShortcutDone(globalDirectory, "Git Bash") && File.Exists(gitBash))
+            // git.exe is checked too, so the shortcut doesn't appear while Git is still being unpacked
+            if (!ShortcutDone(globalDirectory, "Git Bash") && File.Exists(gitBash) && File.Exists(Path.Combine(devRoot, "git", "cmd", "git.exe")))
             {
                 CreateDesktopShortcut(globalDirectory, "Git Bash", gitBash, workDir);
                 Log("Created the Git Bash desktop shortcut.");
@@ -446,7 +460,7 @@ namespace SalsaNOW
                 }
 
                 IntPtr result;
-                SendMessageTimeout(new IntPtr(0xFFFF), 0x001A, IntPtr.Zero, "Environment", 0x0002, 5000, out result);
+                SendMessageTimeout(new IntPtr(0xFFFF), 0x001A, IntPtr.Zero, "Environment", 0x0002, 1000, out result);
                 await Task.Delay(3000);
             }
 
@@ -587,10 +601,30 @@ namespace SalsaNOW
             if (_logFile == null)
                 return;
 
+            string line = $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
             lock (LogLock)
             {
-                try { File.AppendAllText(_logFile, $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}"); }
-                catch { }
+                for (int attempt = 1; attempt <= 3; attempt++)
+                {
+                    try
+                    {
+                        File.AppendAllText(_logFile, line);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (attempt == 3)
+                        {
+                            // Something keeps devtools.log locked: keep the line in a file of our own instead
+                            string fallback = Path.Combine(Path.GetDirectoryName(_logFile), $"devtools-{Process.GetCurrentProcess().Id}.log");
+                            try { File.AppendAllText(fallback, line.TrimEnd() + $"   (devtools.log: {ex.Message}){Environment.NewLine}"); } catch { }
+                        }
+                        else
+                        {
+                            Thread.Sleep(100);
+                        }
+                    }
+                }
             }
         }
 

@@ -37,13 +37,13 @@ namespace SalsaNOW
                 : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DevTools");
 
             ShowWindow(GetConsoleWindow(), 0);
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
 
             // Already running inside SalsaNOW: Start just brings that window to the front.
             // Otherwise (SalsaNOW was closed) this process becomes the Backups app until it is exited.
             if (!Start(devRoot))
                 return true;
 
-            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             await Closed.Task;
             return true;
         }

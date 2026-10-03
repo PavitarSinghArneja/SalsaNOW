@@ -13,6 +13,28 @@ using System.Threading.Tasks;
 
 namespace SalsaNOW
 {
+    // Fork-only: time limits for network calls and gh. On .NET Framework, HttpWebRequest.Timeout and WebClient
+    // do not apply to async calls, so a stalled connection would otherwise wait forever and block all backups.
+    internal static class Timeouts
+    {
+        public static async Task<T> Run<T>(Task<T> task, TimeSpan limit, Action cancel, string what)
+        {
+            if (await Task.WhenAny(task, Task.Delay(limit)) != task)
+            {
+                try { cancel?.Invoke(); } catch { }
+                // The cancelled task still fails later; observe it so that is not reported as unhandled
+                _ = task.ContinueWith(t => { var ignored = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                throw new TimeoutException($"{what} got no answer for {limit.TotalMinutes:0.#} min and was stopped.");
+            }
+            return await task;
+        }
+
+        public static Task Run(Task task, TimeSpan limit, Action cancel, string what)
+        {
+            return Run(task.ContinueWith(t => { t.GetAwaiter().GetResult(); return true; }, TaskContinuationOptions.ExecuteSynchronously), limit, cancel, what);
+        }
+    }
+
     // Fork-only: the portable GitHub CLI (gh). Used only to log in with a one-time code typed on
     // another device (github.com/login/device), so no password or token is ever built into the exe.
     // Its login lives in a temp folder, so it is gone when the session ends.
@@ -50,7 +72,7 @@ namespace SalsaNOW
                 using (var wc = new WebClient())
                 {
                     wc.Headers.Add("User-Agent", GitHubBackupApi.UserAgent);
-                    await wc.DownloadFileTaskAsync(new Uri(url), zip);
+                    await Timeouts.Run(wc.DownloadFileTaskAsync(new Uri(url), zip), TimeSpan.FromMinutes(5), wc.CancelAsync, "Downloading the GitHub CLI");
                 }
 
                 if (Directory.Exists(ghDir))
@@ -77,14 +99,16 @@ namespace SalsaNOW
 
         // Starts "gh auth login" with the device flow. onCode gets the one-time code as soon as gh prints it.
         // The returned process exits with code 0 once the code was entered on github.com/login/device.
-        public static Process StartLogin(Action<string> onCode)
+        // onLine gets every line gh prints, so a failed login can show gh's own reason.
+        public static Process StartLogin(Action<string> onCode, Action<string> onLine)
         {
             ProcessStartInfo psi = CreateStartInfo("auth login --hostname github.com --git-protocol https --web --insecure-storage --scopes repo");
             var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
             DataReceivedEventHandler handler = (s, e) =>
             {
-                if (e.Data == null)
+                if (string.IsNullOrWhiteSpace(e.Data))
                     return;
+                onLine(e.Data.Trim());
                 Match code = Regex.Match(e.Data, @"\b([A-Z0-9]{4}-[A-Z0-9]{4})\b");
                 if (code.Success)
                     onCode(code.Groups[1].Value);
@@ -121,6 +145,7 @@ namespace SalsaNOW
             return psi;
         }
 
+        // For quick gh commands (auth status, auth token): stopped after a minute instead of waiting forever
         private static async Task<Tuple<int, string, string>> RunAsync(string arguments)
         {
             using (Process process = Process.Start(CreateStartInfo(arguments)))
@@ -128,7 +153,11 @@ namespace SalsaNOW
                 process.StandardInput.Close();
                 Task<string> stdout = process.StandardOutput.ReadToEndAsync();
                 Task<string> stderr = process.StandardError.ReadToEndAsync();
-                await Task.Run(() => process.WaitForExit());
+                if (!await Task.Run(() => process.WaitForExit(60 * 1000)))
+                {
+                    try { process.Kill(); } catch { }
+                    throw new TimeoutException("gh " + arguments + " did not finish within a minute.");
+                }
                 return Tuple.Create(process.ExitCode, await stdout, await stderr);
             }
         }
@@ -153,6 +182,10 @@ namespace SalsaNOW
     {
         public const string UserAgent = "SalsaNOW-Backups";
         private const string Api = "https://api.github.com";
+
+        // Longest wait for GitHub to answer a call, and for any single read or write during a transfer
+        private static readonly TimeSpan AnswerLimit = TimeSpan.FromMinutes(2);
+        private static readonly TimeSpan StallLimit = TimeSpan.FromMinutes(2);
 
         private readonly string _token;
         public string Owner { get; private set; }
@@ -316,11 +349,12 @@ namespace SalsaNOW
             using (var input = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 request.ContentLength = input.Length;
-                using (Stream output = await request.GetRequestStreamAsync())
-                    await CopyWithProgressAsync(input, output, input.Length, progress);
+                using (Stream output = await Timeouts.Run(request.GetRequestStreamAsync(), AnswerLimit, request.Abort, "Connecting to GitHub"))
+                    await CopyWithProgressAsync(input, output, input.Length, progress, request.Abort);
             }
 
-            await ReadResponseAsync(request);
+            // GitHub checks the whole file before answering, which can take a while for big uploads
+            await ReadResponseAsync(request, TimeSpan.FromMinutes(10));
         }
 
         public async Task DownloadAssetAsync(long assetId, string file, Action<long, long> progress)
@@ -331,13 +365,13 @@ namespace SalsaNOW
             request.AllowAutoRedirect = false;
 
             string location;
-            using (HttpWebResponse redirect = await GetResponseAsync(request))
+            using (HttpWebResponse redirect = await GetResponseAsync(request, AnswerLimit))
             {
                 location = redirect.Headers["Location"];
                 if (location == null)
                 {
                     // Served directly
-                    await SaveResponseAsync(redirect, file, progress);
+                    await SaveResponseAsync(redirect, file, progress, request.Abort);
                     return;
                 }
             }
@@ -346,8 +380,8 @@ namespace SalsaNOW
             download.UserAgent = UserAgent;
             download.Timeout = (int)TimeSpan.FromHours(3).TotalMilliseconds;
             download.ReadWriteTimeout = (int)TimeSpan.FromMinutes(5).TotalMilliseconds;
-            using (HttpWebResponse response = await GetResponseAsync(download))
-                await SaveResponseAsync(response, file, progress);
+            using (HttpWebResponse response = await GetResponseAsync(download, AnswerLimit))
+                await SaveResponseAsync(response, file, progress, download.Abort);
         }
 
         public Task DeleteAssetAsync(long assetId)
@@ -396,26 +430,26 @@ namespace SalsaNOW
                 byte[] bytes = Encoding.UTF8.GetBytes(body.ToString(Formatting.None));
                 request.ContentType = "application/json";
                 request.ContentLength = bytes.Length;
-                using (Stream stream = await request.GetRequestStreamAsync())
-                    await stream.WriteAsync(bytes, 0, bytes.Length);
+                using (Stream stream = await Timeouts.Run(request.GetRequestStreamAsync(), AnswerLimit, request.Abort, "Connecting to GitHub"))
+                    await Timeouts.Run(stream.WriteAsync(bytes, 0, bytes.Length), StallLimit, request.Abort, "Sending to GitHub");
             }
 
-            return await ReadResponseAsync(request);
+            return await ReadResponseAsync(request, AnswerLimit);
         }
 
-        private static async Task<string> ReadResponseAsync(HttpWebRequest request)
+        private static async Task<string> ReadResponseAsync(HttpWebRequest request, TimeSpan limit)
         {
-            using (HttpWebResponse response = await GetResponseAsync(request))
+            using (HttpWebResponse response = await GetResponseAsync(request, limit))
             using (var reader = new StreamReader(response.GetResponseStream()))
-                return await reader.ReadToEndAsync();
+                return await Timeouts.Run(reader.ReadToEndAsync(), StallLimit, request.Abort, "Reading GitHub's answer");
         }
 
         // Turns HTTP errors into GitHubException with GitHub's own message
-        private static async Task<HttpWebResponse> GetResponseAsync(HttpWebRequest request)
+        private static async Task<HttpWebResponse> GetResponseAsync(HttpWebRequest request, TimeSpan limit)
         {
             try
             {
-                return (HttpWebResponse)await request.GetResponseAsync();
+                return (HttpWebResponse)await Timeouts.Run(request.GetResponseAsync(), limit, request.Abort, "Waiting for GitHub");
             }
             catch (WebException ex) when (ex.Response is HttpWebResponse)
             {
@@ -441,21 +475,22 @@ namespace SalsaNOW
             }
         }
 
-        private static async Task SaveResponseAsync(HttpWebResponse response, string file, Action<long, long> progress)
+        private static async Task SaveResponseAsync(HttpWebResponse response, string file, Action<long, long> progress, Action abort)
         {
             using (Stream input = response.GetResponseStream())
             using (var output = new FileStream(file, FileMode.Create, FileAccess.Write))
-                await CopyWithProgressAsync(input, output, response.ContentLength, progress);
+                await CopyWithProgressAsync(input, output, response.ContentLength, progress, abort);
         }
 
-        private static async Task CopyWithProgressAsync(Stream input, Stream output, long total, Action<long, long> progress)
+        // abort stops the transfer if any single read or write stalls for StallLimit
+        private static async Task CopyWithProgressAsync(Stream input, Stream output, long total, Action<long, long> progress, Action abort)
         {
             var buffer = new byte[1 << 20];
             long done = 0;
             int read;
-            while ((read = await input.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            while ((read = await Timeouts.Run(input.ReadAsync(buffer, 0, buffer.Length), StallLimit, abort, "The transfer")) > 0)
             {
-                await output.WriteAsync(buffer, 0, read);
+                await Timeouts.Run(output.WriteAsync(buffer, 0, read), StallLimit, abort, "The transfer");
                 done += read;
                 progress?.Invoke(done, total);
             }
@@ -466,7 +501,7 @@ namespace SalsaNOW
             using (var wc = new WebClient())
             {
                 wc.Headers.Add("User-Agent", UserAgent);
-                return await wc.DownloadStringTaskAsync(url);
+                return await Timeouts.Run(wc.DownloadStringTaskAsync(url), TimeSpan.FromMinutes(1), wc.CancelAsync, "Asking " + new Uri(url).Host);
             }
         }
     }

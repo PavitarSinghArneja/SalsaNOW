@@ -27,6 +27,8 @@ namespace SalsaNOW
         private readonly TextBox _log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = SystemColors.Window };
         private readonly NotifyIcon _tray = new NotifyIcon();
         private readonly Timer _autoTimer = new Timer { Interval = 60 * 1000 };
+        // Saves the auto backup interval 1.5 s after the last change, so clicking the arrows makes one commit
+        private readonly Timer _minutesSave = new Timer { Interval = 1500 };
 
         private readonly List<Button> _needsLogin = new List<Button>();
         private readonly List<Button> _needsSlot = new List<Button>();
@@ -60,10 +62,17 @@ namespace SalsaNOW
                 try { await Task.Run(() => _engine.AutoTickAsync()); }
                 catch (Exception ex) { AppendLog("Auto backup error: " + ex.Message); }
             };
-            _minutes.ValueChanged += async (s, e) =>
+            _minutes.ValueChanged += (s, e) =>
             {
-                if (!_minutesLoading)
-                    await RunAsync(() => _engine.SetAutoMinutesAsync((int)_minutes.Value));
+                if (_minutesLoading)
+                    return;
+                _minutesSave.Stop();
+                _minutesSave.Start();
+            };
+            _minutesSave.Tick += async (s, e) =>
+            {
+                _minutesSave.Stop();
+                await RunAsync(() => _engine.SetAutoMinutesAsync((int)_minutes.Value));
             };
 
             Shown += async (s, e) => await StartupAsync();
@@ -555,6 +564,7 @@ namespace SalsaNOW
             }
 
             _autoTimer.Stop();
+            _minutesSave.Stop();
             _tray.Visible = false;
             _tray.Dispose();
             base.OnFormClosing(e);
@@ -582,6 +592,7 @@ namespace SalsaNOW
         private readonly Button _retry = new Button { Text = "Get a new code", AutoSize = true, Visible = false };
         private Process _gh;
         private bool _done;
+        private volatile string _lastGhLine = "";
 
         public event Action LoggedIn;
 
@@ -604,7 +615,11 @@ namespace SalsaNOW
 
             var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
             var copy = new Button { Text = "Copy code", AutoSize = true };
-            copy.Click += (s, e) => { if (_code.Text.Contains("-") && !_code.Text.StartsWith(".")) Clipboard.SetText(_code.Text); };
+            copy.Click += (s, e) =>
+            {
+                try { if (_code.Text.Contains("-") && !_code.Text.StartsWith(".")) Clipboard.SetText(_code.Text); }
+                catch (Exception ex) { _status.Text = "Could not copy: " + ex.Message; }
+            };
             var later = new Button { Text = "Later", AutoSize = true };
             later.Click += (s, e) => Close();
             _retry.Click += (s, e) => StartGh();
@@ -621,6 +636,7 @@ namespace SalsaNOW
             _retry.Visible = false;
             _code.Text = "....-....";
             _status.Text = "Asking GitHub for a code...";
+            _lastGhLine = "";
 
             try
             {
@@ -628,7 +644,7 @@ namespace SalsaNOW
                 {
                     _code.Text = code;
                     _status.Text = "Waiting for you to enter the code on github.com/login/device ...";
-                }));
+                }), line => _lastGhLine = line);
                 Process gh = _gh;
                 gh.Exited += (s, e) => SafeInvoke(this, () => OnGhExited(gh));
                 if (gh.HasExited)
@@ -654,7 +670,9 @@ namespace SalsaNOW
                 return;
             }
 
-            _status.Text = "The code expired or the login was cancelled.";
+            // Waits for gh's last output lines to arrive (the process has already exited)
+            try { gh.WaitForExit(); } catch { }
+            _status.Text = "The login did not finish (the code may have expired). gh said: " + _lastGhLine;
             _retry.Visible = true;
         }
 
@@ -733,6 +751,18 @@ namespace SalsaNOW
         }
 
         private void Accept(BackupSlot existing)
+        {
+            try
+            {
+                Validate(existing);
+            }
+            catch (ArgumentException ex)
+            {
+                MessageBox.Show(this, "That folder path is not valid: " + ex.Message, Text);
+            }
+        }
+
+        private void Validate(BackupSlot existing)
         {
             if (SlotName.Length == 0)
             {
@@ -827,13 +857,20 @@ namespace SalsaNOW
             var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
             ok.Click += (s, e) =>
             {
-                string target = Target;
-                if (!Path.IsPathRooted(target) || Path.GetPathRoot(target).TrimEnd('\\') == target.TrimEnd('\\'))
+                try
                 {
-                    MessageBox.Show(this, "Pick a folder (not a whole drive).", Text);
-                    return;
+                    string target = Target;
+                    if (!Path.IsPathRooted(target) || Path.GetPathRoot(target).TrimEnd('\\') == target.TrimEnd('\\'))
+                    {
+                        MessageBox.Show(this, "Pick a folder (not a whole drive).", Text);
+                        return;
+                    }
+                    DialogResult = DialogResult.OK;
                 }
-                DialogResult = DialogResult.OK;
+                catch (ArgumentException ex)
+                {
+                    MessageBox.Show(this, "That folder path is not valid: " + ex.Message, Text);
+                }
             };
             buttons.Controls.AddRange(new Control[] { ok, cancel });
             panel.Controls.Add(buttons);
