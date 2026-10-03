@@ -14,7 +14,7 @@ namespace SalsaNOW
 {
     // Fork-only feature: installs portable Node.js, OpenCode and Git under the SalsaNOW folder on
     // every launch, so they are back even when the whole disk was reset since the last session.
-    // It also opens the Backups app (Fork\Backups), which keeps chosen folders backed up on GitHub.
+    // It also opens the Backups app (Fork\FolderBackups), which keeps chosen folders backed up on GitHub.
     //
     // Kept deliberately self-contained so merges from the original SalsaNOW never touch it: it uses
     // no other SalsaNOW class outside Fork, and the only hooks into the original code are two lines in

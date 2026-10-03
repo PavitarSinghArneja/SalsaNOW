@@ -102,10 +102,10 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Fork\Wallpaper.png" />
-    <Compile Include="Fork\Backups\GitHubBackupApi.cs" />
-    <Compile Include="Fork\Backups\BackupsForm.cs" />
-    <Compile Include="Fork\Backups\BackupsApp.cs" />
-    <Compile Include="Fork\Backups\BackupEngine.cs" />
+    <Compile Include="Fork\FolderBackups\GitHubBackupApi.cs" />
+    <Compile Include="Fork\FolderBackups\BackupsForm.cs" />
+    <Compile Include="Fork\FolderBackups\BackupsApp.cs" />
+    <Compile Include="Fork\FolderBackups\BackupEngine.cs" />
     <Compile Include="Fork\DevToolsInstaller.cs" />
     <Compile Include="Background\BackgroundTasks.cs" />
     <Compile Include="Background\FinalBackgroundTasks.cs" />

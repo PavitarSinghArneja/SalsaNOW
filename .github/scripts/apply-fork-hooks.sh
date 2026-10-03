@@ -13,10 +13,10 @@ program=SalsaNOW/Program.cs
 compile='<Compile Include="Fork\DevToolsInstaller.cs" />'
 wallpaper='<EmbeddedResource Include="Fork\Wallpaper.png" />'
 backups=(
-  '<Compile Include="Fork\Backups\BackupEngine.cs" />'
-  '<Compile Include="Fork\Backups\BackupsApp.cs" />'
-  '<Compile Include="Fork\Backups\BackupsForm.cs" />'
-  '<Compile Include="Fork\Backups\GitHubBackupApi.cs" />'
+  '<Compile Include="Fork\FolderBackups\BackupEngine.cs" />'
+  '<Compile Include="Fork\FolderBackups\BackupsApp.cs" />'
+  '<Compile Include="Fork\FolderBackups\BackupsForm.cs" />'
+  '<Compile Include="Fork\FolderBackups\GitHubBackupApi.cs" />'
 )
 hook='_ = DevToolsInstaller.InstallAsync(globalDirectory);'
 backups_hook='if (await BackupsApp.HandleCommandLineAsync(args)) return;'
