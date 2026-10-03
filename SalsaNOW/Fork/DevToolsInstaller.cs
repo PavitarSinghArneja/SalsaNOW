@@ -55,26 +55,31 @@ namespace SalsaNOW
                 return;
             }
 
-            // Opens right away; it downloads the GitHub CLI itself and then asks for the login code
-            await RunStep("Backups", () =>
-            {
-                if (BackupsApp.Start(devRoot))
-                    CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true);
-                return Task.CompletedTask;
-            });
-
             // Each tool is independent: one failing never stops the others.
-            Task node = RunStep("Node.js", async () =>
+            // Task.Run so each starts right away and nothing below can hold the others up.
+            Task node = Task.Run(() => RunStep("Node.js", async () =>
             {
                 if (!File.Exists(Path.Combine(nodeDir, "node.exe")))
                     await InstallNodeAsync(devRoot, nodeDir);
-            });
+                Log("Node.js ready.");
+            }));
 
-            Task git = RunStep("Git", async () =>
+            Task git = Task.Run(() => RunStep("Git", async () =>
             {
                 if (!File.Exists(Path.Combine(gitCmd, "git.exe")))
                     await InstallGitAsync(devRoot, gitDir);
-            });
+                Log("Git ready.");
+            }));
+
+            // The Backups app opens on its own (it fetches the GitHub CLI itself and then asks for the login code).
+            // It never delays Node, Git or OpenCode.
+            _ = Task.Run(() => RunStep("Backups", () =>
+            {
+                if (BackupsApp.Start(devRoot))
+                    CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true);
+                Log("Backups app started.");
+                return Task.CompletedTask;
+            }));
 
             await node;
             await RunStep("OpenCode", async () =>
