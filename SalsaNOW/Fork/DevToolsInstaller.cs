@@ -58,6 +58,10 @@ namespace SalsaNOW
 
             string[] pathDirs = { nodeDir, npmPrefix, gitCmd, ghBin };
 
+            // If SalsaNOW ever crashes, the reason ends up in devtools.log
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Log("SalsaNOW crashed: " + e.ExceptionObject);
+            Log($"SalsaNOW started (process {Process.GetCurrentProcess().Id}).");
+
             // Each tool is independent and starts right away: one failing or hanging never holds up the others.
             Task node = Task.Run(() => RunStep("Node.js", async () =>
             {
@@ -76,12 +80,6 @@ namespace SalsaNOW
                         throw new InvalidOperationException("Node.js is missing, skipping OpenCode.");
                     await InstallOpenCodeAsync(nodeDir, npmPrefix, gitCmd);
                 });
-                await RunStep("OpenCode shortcut", () =>
-                {
-                    if (File.Exists(Path.Combine(npmPrefix, "opencode.cmd")))
-                        CreateDesktopShortcut(globalDirectory, "OpenCode", WriteLauncher(devRoot, pathDirs, workDir), workDir);
-                    return Task.CompletedTask;
-                });
             });
 
             Task git = Task.Run(async () =>
@@ -91,14 +89,9 @@ namespace SalsaNOW
                     if (!File.Exists(Path.Combine(gitCmd, "git.exe")))
                         await InstallGitAsync(devRoot, gitDir);
                 });
-                await RunStep("Git Bash shortcut", () =>
-                {
-                    string gitBash = Path.Combine(gitDir, "git-bash.exe");
-                    if (File.Exists(gitBash))
-                        CreateDesktopShortcut(globalDirectory, "Git Bash", gitBash, workDir);
-                    return Task.CompletedTask;
-                });
             });
+
+            StartShortcutWatcher(globalDirectory);
 
             // The Backups app opens on its own (it fetches the GitHub CLI itself and then asks for the login code)
             Task backups = Task.Run(() => RunStep("Backups app", () =>
@@ -121,6 +114,81 @@ namespace SalsaNOW
 
             await Task.WhenAll(node, openCode, git, backups, paths);
             Log("All setup steps finished.");
+        }
+
+        // ---------- Desktop shortcuts ----------
+
+        // A plain thread, not the thread pool or the install steps: it creates the OpenCode and Git Bash shortcuts
+        // as soon as their files exist, whatever happens to the rest of setup. It also logs once a minute, which
+        // shows whether this SalsaNOW process is still running.
+        private static void StartShortcutWatcher(string globalDirectory)
+        {
+            var thread = new Thread(() =>
+            {
+                DateTime started = DateTime.Now;
+                DateTime nextAlive = started.AddMinutes(1);
+                while (DateTime.Now - started < TimeSpan.FromMinutes(45))
+                {
+                    try
+                    {
+                        if (EnsureShortcuts(globalDirectory))
+                        {
+                            Log("Desktop shortcuts: OpenCode and Git Bash are there.");
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("Desktop shortcuts failed: " + ex.Message);
+                    }
+
+                    if (DateTime.Now >= nextAlive)
+                    {
+                        Log($"Still running (process {Process.GetCurrentProcess().Id}); waiting for Git Bash and OpenCode to finish installing...");
+                        nextAlive = DateTime.Now.AddMinutes(1);
+                    }
+                    Thread.Sleep(5000);
+                }
+                Log("Gave up waiting for Git Bash and OpenCode after 45 minutes.");
+            });
+            thread.IsBackground = true;
+            thread.Name = "DevTools shortcuts";
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+
+        // Creates the OpenCode and Git Bash desktop shortcuts if their tools are installed and the shortcut is missing.
+        // Returns true once both shortcuts exist (or were deliberately deleted by the user). Also used by the Backups
+        // app as a fallback.
+        internal static bool EnsureShortcuts(string globalDirectory)
+        {
+            string devRoot = Path.Combine(globalDirectory, "DevTools");
+            string workDir = Path.Combine(Path.GetPathRoot(globalDirectory), "Work");
+            string gitBash = Path.Combine(devRoot, "git", "git-bash.exe");
+            string npmPrefix = Path.Combine(devRoot, "npm-global");
+            string[] pathDirs = { Path.Combine(devRoot, "node"), npmPrefix, Path.Combine(devRoot, "git", "cmd"), GhCli.BinDir(devRoot) };
+            Directory.CreateDirectory(workDir);
+
+            if (!ShortcutDone(globalDirectory, "Git Bash") && File.Exists(gitBash))
+            {
+                CreateDesktopShortcut(globalDirectory, "Git Bash", gitBash, workDir);
+                Log("Created the Git Bash desktop shortcut.");
+            }
+
+            if (!ShortcutDone(globalDirectory, "OpenCode") && File.Exists(Path.Combine(npmPrefix, "opencode.cmd")))
+            {
+                CreateDesktopShortcut(globalDirectory, "OpenCode", WriteLauncher(devRoot, pathDirs, workDir), workDir);
+                Log("Created the OpenCode desktop shortcut.");
+            }
+
+            return ShortcutDone(globalDirectory, "Git Bash") && ShortcutDone(globalDirectory, "OpenCode");
+        }
+
+        private static bool ShortcutDone(string globalDirectory, string name)
+        {
+            string fileName = name + ".lnk";
+            return File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), fileName))
+                || File.Exists(Path.Combine(globalDirectory, "Backup Shortcuts", fileName));
         }
 
         // Logs when a step starts, finishes or fails, and once a minute while it is still running,

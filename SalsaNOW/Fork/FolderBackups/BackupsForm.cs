@@ -56,6 +56,7 @@ namespace SalsaNOW
 
             _autoTimer.Tick += async (s, e) =>
             {
+                EnsureDevToolShortcuts();
                 try { await Task.Run(() => _engine.AutoTickAsync()); }
                 catch (Exception ex) { AppendLog("Auto backup error: " + ex.Message); }
             };
@@ -176,7 +177,8 @@ namespace SalsaNOW
         {
             _autoTimer.Start();
             _account.Text = "Getting the GitHub tool ready...";
-            AppendLog("Backups started. Slots marked Auto are backed up every few minutes once you have synced or backed them up in this session.");
+            EnsureDevToolShortcuts();
+            AppendLog($"Backups started (process {Process.GetCurrentProcess().Id}). Slots marked Auto are backed up every few minutes once you have synced or backed them up in this session.");
 
             try
             {
@@ -240,6 +242,13 @@ namespace SalsaNOW
                 _login.Visible = true;
             }
             RefreshAll();
+        }
+
+        // Fallback for the OpenCode and Git Bash desktop shortcuts, in case SalsaNOW's own setup didn't get to them
+        private void EnsureDevToolShortcuts()
+        {
+            try { DevToolsInstaller.EnsureShortcuts(Path.GetDirectoryName(_devRoot.TrimEnd('\\'))); }
+            catch (Exception ex) { AppendLog("Could not create the OpenCode / Git Bash shortcuts: " + ex.Message); }
         }
 
         // ---------- slot actions ----------
