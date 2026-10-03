@@ -21,6 +21,7 @@ namespace SalsaNOW
             // Clean steam environment before everything.
             // WE LEAVE THIS MANDATORY HERE DON'T MOVE OR DELETE.
             SteamDetach.RemoveSteamEnvironments();
+            if (await BackupsApp.HandleCommandLineAsync(args)) return;
 
             Console.Title = "SalsaNOW V1.6.9 - by dpadGuy";
 

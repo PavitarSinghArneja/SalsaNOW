@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Wires the fork-only DevTools installer (SalsaNOW/Fork/DevToolsInstaller.cs) into the original
-# SalsaNOW code. Safe to run any number of times: it only adds what is missing.
-# Two hooks, nothing else in the original files is touched:
-#   1. SalsaNOW.csproj: a <Compile> line for Fork\DevToolsInstaller.cs and an <EmbeddedResource> for Fork\Wallpaper.png
+# Wires the fork-only code (SalsaNOW/Fork: the DevTools installer and the Backups app) into the
+# original SalsaNOW code. Safe to run any number of times: it only adds what is missing.
+# Nothing else in the original files is touched:
+#   1. SalsaNOW.csproj: <Compile> lines for the Fork\*.cs files and an <EmbeddedResource> for Fork\Wallpaper.png
 #   2. Program.cs: one call to DevToolsInstaller.InstallAsync(globalDirectory) after settings load
+#   3. Program.cs: one line right after SteamDetach that handles the Backups shortcut (SalsaNOW.exe --backups)
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -11,9 +12,17 @@ csproj=SalsaNOW/SalsaNOW.csproj
 program=SalsaNOW/Program.cs
 compile='<Compile Include="Fork\DevToolsInstaller.cs" />'
 wallpaper='<EmbeddedResource Include="Fork\Wallpaper.png" />'
+backups=(
+  '<Compile Include="Fork\Backups\BackupEngine.cs" />'
+  '<Compile Include="Fork\Backups\BackupsApp.cs" />'
+  '<Compile Include="Fork\Backups\BackupsForm.cs" />'
+  '<Compile Include="Fork\Backups\GitHubBackupApi.cs" />'
+)
 hook='_ = DevToolsInstaller.InstallAsync(globalDirectory);'
+backups_hook='if (await BackupsApp.HandleCommandLineAsync(args)) return;'
+backups_anchor='SteamDetach.RemoveSteamEnvironments();'
 
-for line in "$compile" "$wallpaper"; do
+for line in "$compile" "$wallpaper" "${backups[@]}"; do
   if ! grep -qF "$line" "$csproj"; then
     # Insert above the first existing <Compile> line, copying its indentation and line ending
     LINE="$line" perl -0pi -e 's/^([ \t]*)(<Compile Include=[^\n]*?)(\r?\n)/$1$ENV{LINE}$3$1$2$3/m' "$csproj"
@@ -32,7 +41,19 @@ if ! grep -qF "$hook" "$program"; then
   done
 fi
 
-if ! grep -qF "$compile" "$csproj" || ! grep -qF "$wallpaper" "$csproj" || ! grep -qF "$hook" "$program"; then
-  echo "::error::Could not wire the Node/OpenCode/Git installer into the original SalsaNOW code"
+# The Backups shortcut starts SalsaNOW.exe --backups, which must not run the rest of SalsaNOW
+if ! grep -qF "$backups_hook" "$program" && grep -qF "$backups_anchor" "$program"; then
+  ANCHOR="$backups_anchor" HOOK="$backups_hook" perl -0pi -e 's/^([ \t]*)(\Q$ENV{ANCHOR}\E[^\n]*?)(\r?\n)/$1$2$3$1$ENV{HOOK}$3/m' "$program"
+  echo "Added the Backups shortcut check to $program after: $backups_anchor"
+fi
+
+for line in "$compile" "$wallpaper" "${backups[@]}"; do
+  if ! grep -qF "$line" "$csproj"; then
+    echo "::error::Could not add $line to $csproj"
+    exit 1
+  fi
+done
+if ! grep -qF "$hook" "$program" || ! grep -qF "$backups_hook" "$program"; then
+  echo "::error::Could not wire the Node/OpenCode/Git installer and Backups app into the original SalsaNOW code"
   exit 1
 fi

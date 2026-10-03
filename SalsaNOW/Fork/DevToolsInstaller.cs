@@ -14,10 +14,11 @@ namespace SalsaNOW
 {
     // Fork-only feature: installs portable Node.js, OpenCode and Git under the SalsaNOW folder on
     // every launch, so they are back even when the whole disk was reset since the last session.
+    // It also opens the Backups app (Fork\Backups), which keeps chosen folders backed up on GitHub.
     //
     // Kept deliberately self-contained so merges from the original SalsaNOW never touch it: it uses
-    // no other SalsaNOW class, and the only hook into the original code is one line in Program.cs
-    // (plus one <Compile> line in SalsaNOW.csproj), both re-added by .github/scripts/apply-fork-hooks.sh.
+    // no other SalsaNOW class outside Fork, and the only hooks into the original code are two lines in
+    // Program.cs (plus <Compile> lines in SalsaNOW.csproj), all re-added by .github/scripts/apply-fork-hooks.sh.
     internal static class DevToolsInstaller
     {
         private const string NodeIndexUrl = "https://nodejs.org/dist/index.json";
@@ -35,6 +36,7 @@ namespace SalsaNOW
             string npmPrefix = Path.Combine(devRoot, "npm-global");
             string gitDir = Path.Combine(devRoot, "git");
             string gitCmd = Path.Combine(gitDir, "cmd");
+            string ghBin = GhCli.BinDir(devRoot);
             string workDir = Path.Combine(Path.GetPathRoot(globalDirectory), "Work");
 
             // Runs before the first await, so it finishes before SalsaNOW's own desktop setup picks a wallpaper
@@ -52,6 +54,14 @@ namespace SalsaNOW
                 Log("DevTools folder setup failed: " + ex.Message);
                 return;
             }
+
+            // Opens right away; it downloads the GitHub CLI itself and then asks for the login code
+            await RunStep("Backups", () =>
+            {
+                if (BackupsApp.Start(devRoot))
+                    CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true);
+                return Task.CompletedTask;
+            });
 
             // Each tool is independent: one failing never stops the others.
             Task node = RunStep("Node.js", async () =>
@@ -77,7 +87,7 @@ namespace SalsaNOW
             });
             await git;
 
-            string[] pathDirs = { nodeDir, npmPrefix, gitCmd };
+            string[] pathDirs = { nodeDir, npmPrefix, gitCmd, ghBin };
             await RunStep("PATH", () => AddToUserPathAsync(pathDirs));
             await RunStep("Terminal PATH", () =>
             {
@@ -100,7 +110,7 @@ namespace SalsaNOW
                 return Task.CompletedTask;
             });
 
-            Log("Node.js, OpenCode and Git setup finished.");
+            Log("Node.js, OpenCode, Git and Backups setup finished.");
         }
 
         private static async Task RunStep(string name, Func<Task> step)
@@ -390,19 +400,25 @@ namespace SalsaNOW
             return launcher;
         }
 
-        private static void CreateDesktopShortcut(string globalDirectory, string name, string target, string workDir)
+        // replace: rewrite an existing shortcut (used when its target can move, like the SalsaNOW exe itself)
+        private static void CreateDesktopShortcut(string globalDirectory, string name, string target, string workDir, string arguments = null, bool replace = false)
         {
             string fileName = name + ".lnk";
             string desktopLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), fileName);
 
             // SalsaNOW moves shortcuts the user deleted into "Backup Shortcuts"; respect that choice.
-            if (File.Exists(desktopLnk) || File.Exists(Path.Combine(globalDirectory, "Backup Shortcuts", fileName)))
+            if ((File.Exists(desktopLnk) && !replace) || File.Exists(Path.Combine(globalDirectory, "Backup Shortcuts", fileName)))
                 return;
 
             dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
             dynamic lnk = shell.CreateShortcut(desktopLnk);
             lnk.TargetPath = target;
             lnk.WorkingDirectory = workDir;
+            if (arguments != null)
+            {
+                lnk.Arguments = arguments;
+                lnk.WindowStyle = 7;   // minimized, so the console flashes less
+            }
             lnk.Save();
         }
 
