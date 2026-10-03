@@ -63,8 +63,8 @@ namespace SalsaNOW
             _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent, (state, timedOut) =>
             {
                 BackupsForm form = _form;
-                if (form != null && form.IsHandleCreated && !form.IsDisposed)
-                    form.BeginInvoke((Action)form.ShowAndActivate);
+                if (form != null)
+                    LoginForm.SafeInvoke(form, form.ShowAndActivate);
             }, null, Timeout.Infinite, false);
 
             var ready = new ManualResetEventSlim(false);

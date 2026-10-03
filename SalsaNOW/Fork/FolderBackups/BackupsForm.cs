@@ -19,6 +19,7 @@ namespace SalsaNOW
         private readonly Label _account = new Label { AutoSize = true, Margin = new Padding(3, 9, 12, 3) };
         private readonly Button _login = new Button { Text = "Log in to GitHub", AutoSize = true, Visible = false };
         private readonly LinkLabel _repoLink = new LinkLabel { Text = "Open the repo on GitHub", AutoSize = true, Margin = new Padding(3, 9, 3, 3), Visible = false };
+        private readonly LinkLabel _setupLog = new LinkLabel { Text = "Setup log (Node, Git, OpenCode)", AutoSize = true, Margin = new Padding(12, 9, 3, 3) };
         private readonly ListView _list = new ListView { View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, Dock = DockStyle.Fill };
         private readonly NumericUpDown _minutes = new NumericUpDown { Minimum = 1, Maximum = 240, Value = BackupEngine.DefaultAutoMinutes, Width = 55, Margin = new Padding(3, 6, 3, 3) };
         private readonly ProgressBar _progress = new ProgressBar { Dock = DockStyle.Fill, Height = 18 };
@@ -83,7 +84,8 @@ namespace SalsaNOW
             var accountRow = Row();
             _login.Click += async (s, e) => await LoginAsync();
             _repoLink.LinkClicked += (s, e) => OpenUrl(_engine.Api.RepoWebUrl);
-            accountRow.Controls.AddRange(new Control[] { _account, _login, _repoLink });
+            _setupLog.LinkClicked += (s, e) => OpenLog(Path.Combine(_devRoot, "devtools.log"));
+            accountRow.Controls.AddRange(new Control[] { _account, _login, _repoLink, _setupLog });
 
             var toolbar = Row();
             toolbar.Controls.Add(MakeButton("New slot...", true, false, NewSlotAsync));
@@ -399,7 +401,7 @@ namespace SalsaNOW
             if (_refreshQueued)
                 return;
             _refreshQueued = true;
-            BeginInvoke((Action)(() => { _refreshQueued = false; RefreshAll(); }));
+            LoginForm.SafeInvoke(this, () => { _refreshQueued = false; RefreshAll(); });
         }
 
         private void RefreshAll()
@@ -460,9 +462,20 @@ namespace SalsaNOW
             if (IsDisposed || !IsHandleCreated)
                 return;
             if (InvokeRequired)
-                BeginInvoke(action);
+                LoginForm.SafeInvoke(this, action);
             else
                 action();
+        }
+
+        private void OpenLog(string file)
+        {
+            if (!File.Exists(file))
+            {
+                MessageBox.Show(this, "There is no log yet at:\n" + file, Text);
+                return;
+            }
+            try { Process.Start("notepad.exe", "\"" + file + "\""); }
+            catch (Exception ex) { MessageBox.Show(this, file + "\n\n" + ex.Message, Text); }
         }
 
         private static void OpenUrl(string url)
@@ -500,6 +513,18 @@ namespace SalsaNOW
 
     internal class LoginForm : Form
     {
+        // gh's events arrive on background threads, possibly after this window closed. An exception there
+        // would end the whole SalsaNOW process, so a closed window just ignores them.
+        public static void SafeInvoke(Control control, Action action)
+        {
+            try
+            {
+                if (!control.IsDisposed && control.IsHandleCreated)
+                    control.BeginInvoke(action);
+            }
+            catch (InvalidOperationException) { }
+        }
+
         private readonly Label _code = new Label { AutoSize = true, Font = new Font("Consolas", 30f, FontStyle.Bold), Text = "....-....", Margin = new Padding(3, 10, 3, 10) };
         private readonly Label _status = new Label { AutoSize = true, MaximumSize = new Size(420, 0), Text = "Asking GitHub for a code..." };
         private readonly Button _retry = new Button { Text = "Get a new code", AutoSize = true, Visible = false };
@@ -547,13 +572,13 @@ namespace SalsaNOW
 
             try
             {
-                _gh = GhCli.StartLogin(code => BeginInvoke((Action)(() =>
+                _gh = GhCli.StartLogin(code => SafeInvoke(this, () =>
                 {
                     _code.Text = code;
                     _status.Text = "Waiting for you to enter the code on github.com/login/device ...";
-                })));
+                }));
                 Process gh = _gh;
-                gh.Exited += (s, e) => BeginInvoke((Action)(() => OnGhExited(gh)));
+                gh.Exited += (s, e) => SafeInvoke(this, () => OnGhExited(gh));
                 if (gh.HasExited)
                     OnGhExited(gh);
             }
