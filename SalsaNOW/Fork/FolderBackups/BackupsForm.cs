@@ -467,15 +467,49 @@ namespace SalsaNOW
                 action();
         }
 
+        // Shown in a window of its own: GeForce NOW does not let Notepad open
         private void OpenLog(string file)
         {
-            if (!File.Exists(file))
+            string text;
+            try
             {
-                MessageBox.Show(this, "There is no log yet at:\n" + file, Text);
-                return;
+                using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream))
+                    text = reader.ReadToEnd();
             }
-            try { Process.Start("notepad.exe", "\"" + file + "\""); }
-            catch (Exception ex) { MessageBox.Show(this, file + "\n\n" + ex.Message, Text); }
+            catch (FileNotFoundException)
+            {
+                text = "There is no log yet at " + file;
+            }
+            catch (Exception ex)
+            {
+                text = "Could not read " + file + ": " + ex.Message;
+            }
+
+            var viewer = new Form
+            {
+                Text = Path.GetFileName(file) + " - SalsaNOW Backups",
+                Font = new Font("Consolas", 9.5f),
+                ClientSize = new Size(900, 520),
+                StartPosition = FormStartPosition.CenterParent,
+                Icon = Icon
+            };
+            var box = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Both,
+                WordWrap = false,
+                Dock = DockStyle.Fill,
+                BackColor = SystemColors.Window,
+                Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n")
+            };
+            var copy = new Button { Text = "Copy all", Dock = DockStyle.Bottom, Height = 32, Font = Font };
+            copy.Click += (s, e) => { try { Clipboard.SetText(box.Text.Length > 0 ? box.Text : " "); } catch { } };
+            viewer.Controls.Add(box);
+            viewer.Controls.Add(copy);
+            viewer.Shown += (s, e) => { box.SelectionStart = box.TextLength; box.ScrollToCaret(); };
+            viewer.Show(this);
         }
 
         private static void OpenUrl(string url)
