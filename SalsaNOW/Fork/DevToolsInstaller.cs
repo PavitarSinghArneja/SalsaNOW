@@ -108,17 +108,16 @@ namespace SalsaNOW
                 return Task.CompletedTask;
             }));
 
-            // PATH is set up front: folders that don't exist yet are harmless, and this way each tool works in
-            // new terminals as soon as it is installed instead of only after all of them are.
-            Task paths = Task.Run(async () =>
+            // Set up front: folders that don't exist yet are harmless, and this way each tool works in new
+            // terminals as soon as it is installed instead of only after all of them are.
+            // The terminal startup lines come first: they are instant and are what makes new terminals on
+            // GeForce NOW find the tools. The user PATH (registry) step can take a while and runs on its own.
+            await RunStep("Terminal PATH", () =>
             {
-                await RunStep("PATH", () => AddToUserPathAsync(pathDirs));
-                await RunStep("Terminal PATH", () =>
-                {
-                    AddToTerminalStartup(pathDirs);
-                    return Task.CompletedTask;
-                });
+                AddToTerminalStartup(pathDirs);
+                return Task.CompletedTask;
             });
+            Task paths = Task.Run(() => RunStep("PATH", () => AddToUserPathAsync(pathDirs)));
 
             await Task.WhenAll(node, openCode, git, backups, paths);
             Log("All setup steps finished.");

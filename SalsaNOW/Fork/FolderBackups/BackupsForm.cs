@@ -485,7 +485,8 @@ namespace SalsaNOW
             {
                 text = "Could not read " + file + ": " + ex.Message;
             }
-            return text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            return text.Replace("\r\n", "\n").Replace("\n", "\r\n")
+                + "\r\n--- read at " + DateTime.Now.ToString("HH:mm:ss") + " ---";
         }
 
         private void OpenLog(string file)
