@@ -92,6 +92,14 @@ namespace SalsaNOW
                 return Task.CompletedTask;
             });
 
+            await RunStep("Git Bash shortcut", () =>
+            {
+                string gitBash = Path.Combine(gitDir, "git-bash.exe");
+                if (File.Exists(gitBash))
+                    CreateDesktopShortcut(globalDirectory, "Git Bash", gitBash, workDir);
+                return Task.CompletedTask;
+            });
+
             Log("Node.js, OpenCode and Git setup finished.");
         }
 
@@ -317,12 +325,24 @@ namespace SalsaNOW
         {
             string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             string list = string.Join(", ", directories.Select(d => "'" + d.Replace("'", "''") + "'"));
-            WriteMarkedBlock(Path.Combine(documents, "PowerShell", "profile.ps1"), string.Join(Environment.NewLine, new[]
+            WriteMarkedBlock(Path.Combine(documents, "PowerShell", "profile.ps1"), new[]
             {
-                ProfileBlockStart,
-                "foreach ($d in @(" + list + ")) { if (($env:Path -split ';') -notcontains $d) { $env:Path = \"$d;$env:Path\" } }",
-                ProfileBlockEnd
-            }));
+                "foreach ($d in @(" + list + ")) { if (($env:Path -split ';') -notcontains $d) { $env:Path = \"$d;$env:Path\" } }"
+            }, "\r\n");
+
+            // Git Bash: ~/.bashrc gets the folders in /i/... form. Git for Windows only reads .bashrc through
+            // .bash_profile (and warns when it has to create one), so make sure that exists too.
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var bashLines = directories.Select(d =>
+            {
+                string unixPath = "/" + char.ToLowerInvariant(d[0]) + d.Substring(2).Replace('\\', '/');
+                return $"case \":$PATH:\" in *\":{unixPath}:\"*) ;; *) export PATH=\"{unixPath}:$PATH\" ;; esac";
+            }).ToArray();
+            WriteMarkedBlock(Path.Combine(home, ".bashrc"), bashLines, "\n");
+
+            string bashProfile = Path.Combine(home, ".bash_profile");
+            if (!File.Exists(bashProfile))
+                File.WriteAllText(bashProfile, "test -f ~/.bashrc && . ~/.bashrc\n");
 
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Command Processor"))
             {
@@ -341,8 +361,9 @@ namespace SalsaNOW
         }
 
         // Replaces our marked block in a file, or appends it, leaving everything else in the file untouched.
-        private static void WriteMarkedBlock(string file, string block)
+        private static void WriteMarkedBlock(string file, string[] lines, string newline)
         {
+            string block = string.Join(newline, new[] { ProfileBlockStart }.Concat(lines).Concat(new[] { ProfileBlockEnd }));
             Directory.CreateDirectory(Path.GetDirectoryName(file));
             string text = File.Exists(file) ? File.ReadAllText(file) : "";
 
@@ -351,7 +372,7 @@ namespace SalsaNOW
             if (start >= 0 && end >= 0)
                 text = text.Remove(start, end + ProfileBlockEnd.Length - start).Insert(start, block);
             else
-                text = (text.Length == 0 || text.EndsWith("\n") ? text : text + Environment.NewLine) + block + Environment.NewLine;
+                text = (text.Length == 0 || text.EndsWith("\n") ? text : text + newline) + block + newline;
 
             File.WriteAllText(file, text);
         }
