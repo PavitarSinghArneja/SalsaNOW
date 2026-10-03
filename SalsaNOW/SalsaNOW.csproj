@@ -101,6 +101,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Fork\Wallpaper.png" />
     <Compile Include="Fork\DevToolsInstaller.cs" />
     <Compile Include="Background\BackgroundTasks.cs" />
     <Compile Include="Background\FinalBackgroundTasks.cs" />

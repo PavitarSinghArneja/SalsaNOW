@@ -37,6 +37,9 @@ namespace SalsaNOW
             string gitCmd = Path.Combine(gitDir, "cmd");
             string workDir = Path.Combine(Path.GetPathRoot(globalDirectory), "Work");
 
+            // Runs before the first await, so it finishes before SalsaNOW's own desktop setup picks a wallpaper
+            PlaceWallpaper(globalDirectory);
+
             try
             {
                 Directory.CreateDirectory(devRoot);
@@ -101,6 +104,50 @@ namespace SalsaNOW
             catch (Exception ex)
             {
                 Log(name + " setup failed: " + ex.Message);
+            }
+        }
+
+        // ---------- Wallpaper ----------
+
+        // SalsaNOW uses the first picture in <SalsaNOW>\DesktopWallpaper as the desktop wallpaper.
+        // Ours is built into the exe (Fork\Wallpaper.png) because the disk is reset between sessions.
+        // Any other pictures already there are moved to DesktopWallpaper\Previous so ours is the one used.
+        private static void PlaceWallpaper(string globalDirectory)
+        {
+            string[] imageExtensions = { ".bmp", ".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff", ".webp", ".jxr" };
+
+            try
+            {
+                string wallpaperDir = Path.Combine(globalDirectory, "DesktopWallpaper");
+                string target = Path.Combine(wallpaperDir, "SalsaNOWForkWallpaper.png");
+                Directory.CreateDirectory(wallpaperDir);
+
+                using (Stream resource = typeof(DevToolsInstaller).Assembly.GetManifestResourceStream("SalsaNOW.Fork.Wallpaper.png"))
+                {
+                    if (resource == null)
+                        throw new InvalidOperationException("Wallpaper is missing from the exe.");
+
+                    foreach (string file in Directory.GetFiles(wallpaperDir))
+                    {
+                        if (string.Equals(file, target, StringComparison.OrdinalIgnoreCase)
+                            || !imageExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                            continue;
+
+                        string previousDir = Path.Combine(wallpaperDir, "Previous");
+                        Directory.CreateDirectory(previousDir);
+                        string moved = Path.Combine(previousDir, Path.GetFileName(file));
+                        if (File.Exists(moved))
+                            File.Delete(moved);
+                        File.Move(file, moved);
+                    }
+
+                    using (var output = new FileStream(target, FileMode.Create, FileAccess.Write))
+                        resource.CopyTo(output);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Wallpaper setup failed: " + ex.Message);
             }
         }
 
