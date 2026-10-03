@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -102,6 +103,29 @@ namespace SalsaNOW
         public static string ExePath
         {
             get { return Process.GetCurrentProcess().MainModule.FileName; }
+        }
+
+        // The app's icon, built into the exe from Fork\FolderBackups\Backups.ico
+        private const string IconResource = "SalsaNOW.Fork.FolderBackups.Backups.ico";
+
+        public static Icon LoadIcon()
+        {
+            using (Stream resource = typeof(BackupsApp).Assembly.GetManifestResourceStream(IconResource))
+                return resource == null ? null : new Icon(resource);
+        }
+
+        // Shortcuts need the icon as a file on disk
+        public static string WriteIconFile(string devRoot)
+        {
+            string path = Path.Combine(devRoot, "Backups.ico");
+            using (Stream resource = typeof(BackupsApp).Assembly.GetManifestResourceStream(IconResource))
+            {
+                if (resource == null)
+                    return null;
+                using (var output = new FileStream(path, FileMode.Create, FileAccess.Write))
+                    resource.CopyTo(output);
+            }
+            return path;
         }
 
         [DllImport("kernel32.dll")]

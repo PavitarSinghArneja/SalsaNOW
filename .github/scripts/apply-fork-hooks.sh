@@ -2,7 +2,7 @@
 # Wires the fork-only code (SalsaNOW/Fork: the DevTools installer and the Backups app) into the
 # original SalsaNOW code. Safe to run any number of times: it only adds what is missing.
 # Nothing else in the original files is touched:
-#   1. SalsaNOW.csproj: <Compile> lines for the Fork\*.cs files and an <EmbeddedResource> for Fork\Wallpaper.png
+#   1. SalsaNOW.csproj: <Compile> lines for the Fork\*.cs files and <EmbeddedResource> lines for Fork\Wallpaper.png and the Backups icon
 #   2. Program.cs: one call to DevToolsInstaller.InstallAsync(globalDirectory) after settings load
 #   3. Program.cs: one line right after SteamDetach that handles the Backups shortcut (SalsaNOW.exe --backups)
 set -euo pipefail
@@ -17,6 +17,7 @@ backups=(
   '<Compile Include="Fork\FolderBackups\BackupsApp.cs" />'
   '<Compile Include="Fork\FolderBackups\BackupsForm.cs" />'
   '<Compile Include="Fork\FolderBackups\GitHubBackupApi.cs" />'
+  '<EmbeddedResource Include="Fork\FolderBackups\Backups.ico" />'
 )
 hook='_ = DevToolsInstaller.InstallAsync(globalDirectory);'
 backups_hook='if (await BackupsApp.HandleCommandLineAsync(args)) return;'

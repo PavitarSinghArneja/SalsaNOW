@@ -45,7 +45,7 @@ namespace SalsaNOW
             ClientSize = new Size(940, 560);
             MinimumSize = new Size(700, 420);
             StartPosition = FormStartPosition.CenterScreen;
-            try { Icon = Icon.ExtractAssociatedIcon(BackupsApp.ExePath); } catch { }
+            try { Icon = BackupsApp.LoadIcon() ?? Icon.ExtractAssociatedIcon(BackupsApp.ExePath); } catch { }
 
             BuildLayout();
             BuildTray();

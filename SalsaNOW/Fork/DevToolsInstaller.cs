@@ -76,7 +76,7 @@ namespace SalsaNOW
             _ = Task.Run(() => RunStep("Backups", () =>
             {
                 if (BackupsApp.Start(devRoot))
-                    CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true);
+                    CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true, icon: BackupsApp.WriteIconFile(devRoot));
                 Log("Backups app started.");
                 return Task.CompletedTask;
             }));
@@ -406,7 +406,7 @@ namespace SalsaNOW
         }
 
         // replace: rewrite an existing shortcut (used when its target can move, like the SalsaNOW exe itself)
-        private static void CreateDesktopShortcut(string globalDirectory, string name, string target, string workDir, string arguments = null, bool replace = false)
+        private static void CreateDesktopShortcut(string globalDirectory, string name, string target, string workDir, string arguments = null, bool replace = false, string icon = null)
         {
             string fileName = name + ".lnk";
             string desktopLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), fileName);
@@ -424,6 +424,8 @@ namespace SalsaNOW
                 lnk.Arguments = arguments;
                 lnk.WindowStyle = 7;   // minimized, so the console flashes less
             }
+            if (icon != null)
+                lnk.IconLocation = icon + ",0";
             lnk.Save();
         }
 
