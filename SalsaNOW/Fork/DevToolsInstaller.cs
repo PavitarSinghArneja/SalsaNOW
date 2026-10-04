@@ -93,11 +93,22 @@ namespace SalsaNOW
 
             StartShortcutWatcher(globalDirectory);
 
-            // The Backups app opens on its own (it fetches the GitHub CLI itself and then asks for the login code)
+            // The Backups app runs as a separate process (SalsaNOW.exe --backups), the same way its desktop shortcut
+            // starts it. On GeForce NOW the SalsaNOW process was seen ending about a minute after startup with no
+            // error; as its own process, Backups and its automatic backups keep running whatever happens to SalsaNOW.
             Task backups = Task.Run(() => RunStep("Backups app", () =>
             {
-                if (BackupsApp.Start(devRoot))
-                    CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, $"{BackupsApp.ShortcutArgument} \"{devRoot}\"", replace: true, icon: BackupsApp.WriteIconFile(devRoot));
+                string arguments = $"{BackupsApp.ShortcutArgument} \"{devRoot}\"";
+                CreateDesktopShortcut(globalDirectory, "Backups", BackupsApp.ExePath, devRoot, arguments, replace: true, icon: BackupsApp.WriteIconFile(devRoot));
+                using (Process app = Process.Start(new ProcessStartInfo(BackupsApp.ExePath, arguments)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = devRoot
+                }))
+                {
+                    Log($"Backups app started as its own process ({app?.Id}).");
+                }
                 return Task.CompletedTask;
             }));
 

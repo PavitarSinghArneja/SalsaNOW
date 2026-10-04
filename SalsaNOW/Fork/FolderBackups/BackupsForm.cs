@@ -20,6 +20,7 @@ namespace SalsaNOW
         private readonly Button _login = new Button { Text = "Log in to GitHub", AutoSize = true, Visible = false };
         private readonly LinkLabel _repoLink = new LinkLabel { Text = "Open the repo on GitHub", AutoSize = true, Margin = new Padding(3, 9, 3, 3), Visible = false };
         private readonly LinkLabel _setupLog = new LinkLabel { Text = "Setup log (Node, Git, OpenCode)", AutoSize = true, Margin = new Padding(12, 9, 3, 3) };
+        private readonly LinkLabel _salsaLog = new LinkLabel { Text = "SalsaNOW log", AutoSize = true, Margin = new Padding(12, 9, 3, 3) };
         private readonly ListView _list = new ListView { View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, Dock = DockStyle.Fill };
         private readonly NumericUpDown _minutes = new NumericUpDown { Minimum = 1, Maximum = 240, Value = BackupEngine.DefaultAutoMinutes, Width = 55, Margin = new Padding(3, 6, 3, 3) };
         private readonly ProgressBar _progress = new ProgressBar { Dock = DockStyle.Fill, Height = 18 };
@@ -95,7 +96,9 @@ namespace SalsaNOW
             _login.Click += async (s, e) => await LoginAsync();
             _repoLink.LinkClicked += (s, e) => OpenUrl(_engine.Api.RepoWebUrl);
             _setupLog.LinkClicked += (s, e) => OpenLog(Path.Combine(_devRoot, "devtools.log"));
-            accountRow.Controls.AddRange(new Control[] { _account, _login, _repoLink, _setupLog });
+            // SalsaNOW's own log sits in the folder above DevTools
+            _salsaLog.LinkClicked += (s, e) => OpenLog(Path.Combine(Path.GetDirectoryName(_devRoot.TrimEnd('\\')), "SalsaNOW.log"));
+            accountRow.Controls.AddRange(new Control[] { _account, _login, _repoLink, _setupLog, _salsaLog });
 
             var toolbar = Row();
             toolbar.Controls.Add(MakeButton("New slot...", true, false, NewSlotAsync));

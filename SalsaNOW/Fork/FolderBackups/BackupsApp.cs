@@ -10,11 +10,11 @@ using System.Windows.Forms;
 
 namespace SalsaNOW
 {
-    // Fork-only: the "Backups" app. It opens with SalsaNOW and keeps running in the background, so
-    // automatic backups keep happening even if the window is closed (closing only minimizes it).
+    // Fork-only: the "Backups" app. It runs as its own process, "SalsaNOW.exe --backups <DevTools folder>",
+    // started by DevToolsInstaller when SalsaNOW starts and by the Backups desktop shortcut. It keeps running in
+    // the background, so automatic backups keep happening even if the window is closed (closing only minimizes it).
     //
-    // Hooks into the original code: DevToolsInstaller starts it, and one line in Program.cs handles
-    // "SalsaNOW.exe --backups <DevTools folder>", which the Backups desktop shortcut runs.
+    // Hook into the original code: one line in Program.cs hands that command line to HandleCommandLineAsync.
     internal static class BackupsApp
     {
         public const string ShortcutArgument = "--backups";
@@ -39,8 +39,8 @@ namespace SalsaNOW
             ShowWindow(GetConsoleWindow(), 0);
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
 
-            // Already running inside SalsaNOW: Start just brings that window to the front.
-            // Otherwise (SalsaNOW was closed) this process becomes the Backups app until it is exited.
+            // Already running: Start just brings that window to the front.
+            // Otherwise this process becomes the Backups app until it is exited.
             if (!Start(devRoot))
                 return true;
 
