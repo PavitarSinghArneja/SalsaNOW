@@ -23,7 +23,7 @@ namespace SalsaNOW
             SteamDetach.RemoveSteamEnvironments();
             if (await BackupsApp.HandleCommandLineAsync(args)) return;
 
-            Console.Title = "SalsaNOW V1.6.9 - by dpadGuy";
+            Console.Title = "SalsaNOW V1.6.9.1 - by dpadGuy";
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -33,7 +33,7 @@ namespace SalsaNOW
                 }
             }
 
-            Console.WriteLine("SalsaNOW V1.6.9");
+            Console.WriteLine("SalsaNOW V1.6.9.1");
             Console.WriteLine("IF YOU HAVE PAID FOR SALSANOW ACCESS THEN IT MEANS YOU GOT SCAMMED AND SHOULD DEMAND YOUR MONEY BACK IMMEDIATELY.");
             Console.WriteLine("");
 
@@ -103,16 +103,14 @@ namespace SalsaNOW
             _ = Task.Run(() => NvidiaManager.EnableRTX());
 
             Task installs = Task.WhenAll(
-                SteamManager.ShutdownServerAsync(globalDirectory),
                 DesktopInstaller.DesktopInstallAsync(globalDirectory),
                 AppInstaller.AppsInstallAsync(globalDirectory, customAppsJsonPath),
-                AppInstaller.AppsInstallSilentAsync(globalDirectory)
+                AppInstaller.AppsInstallSilentAsync(globalDirectory),
+                SteamManager.ShutdownServerAsync(globalDirectory)
             );
 
             await installs;
             await FinalBackgroundTasks.FinalTasks(globalDirectory, cts.Token);
-
-            NativeMethods.ShowWindow(NativeMethods.GetConsoleWindow(), NativeMethods.SW_HIDE);
 
             try { await Task.Delay(Timeout.Infinite, cts.Token); } catch (TaskCanceledException) { }
         }
