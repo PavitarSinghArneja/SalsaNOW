@@ -27,6 +27,8 @@ namespace SalsaNOW
             try
             {
                 string usgMask = Path.Combine(globalDirectory, "conhost.exe");
+                string customServer = Path.Combine(globalDirectory, "server.exe");
+                string customServerConfig = Path.Combine(globalDirectory, "server_config.json");
                 string destinationDir = @"C:\Program Files (x86)\Steam\steamui";
                 string cache = @"C:\Program Files (x86)\Steam\appcache";
                 string chunkTemp = Path.Combine(globalDirectory, "chunk~2dcc5aaf7.js");
@@ -34,14 +36,25 @@ namespace SalsaNOW
                 Task inputTask = ApplySteamInput(SalsaSettings.SteamInput);
                 Task usgDownload = DownloadFileAsync("https://salsanowfiles.work/USG/bleh.exe", usgMask);
                 Task chunkDownload = DownloadFileAsync("https://salsanowfiles.work/USG/chunk~2dcc5aaf7.js", chunkTemp);
+                Task customServerDownload = DownloadFileAsync("https://salsanowfiles.work/USG/ModifiedServer/server.exe", customServer);
+                Task CustomServerConfig = DownloadFileAsync("https://salsanowfiles.work/USG/ModifiedServer/server_config.json", customServerConfig);
 
                 SwapSteamUi();
-                await Task.WhenAll(inputTask, usgDownload, chunkDownload);
+                await Task.WhenAll(inputTask, usgDownload, chunkDownload, customServerDownload, CustomServerConfig);
 
                 string chunkDest = Path.Combine(destinationDir, "chunk~2dcc5aaf7.js");
                 if (File.Exists(chunkDest))
                     File.Delete(chunkDest);
                 File.Move(chunkTemp, chunkDest);
+
+                // Starting custom server interaction with steam
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = customServer,
+                    Arguments = customServerConfig,
+                    UseShellExecute = true
+                });
 
                 // Steam USG Bypass Part (Temporary until patch discovered)
 
