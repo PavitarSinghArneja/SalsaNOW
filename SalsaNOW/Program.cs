@@ -23,7 +23,9 @@ namespace SalsaNOW
             SteamDetach.RemoveSteamEnvironments();
             if (await BackupsApp.HandleCommandLineAsync(args)) return;
 
-            Console.Title = "SalsaNOW V1.6.9.2 - by dpadGuy";
+            string salsaNowTitle = "SalsaNOW V1.6.9.3 - by dpadGuy";
+
+            Console.Title = salsaNowTitle;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -33,7 +35,7 @@ namespace SalsaNOW
                 }
             }
 
-            Console.WriteLine("SalsaNOW V1.6.9.2");
+            Console.WriteLine(salsaNowTitle);
             Console.WriteLine("IF YOU HAVE PAID FOR SALSANOW ACCESS THEN IT MEANS YOU GOT SCAMMED AND SHOULD DEMAND YOUR MONEY BACK IMMEDIATELY.");
             Console.WriteLine("");
 
@@ -106,7 +108,7 @@ namespace SalsaNOW
                 DesktopInstaller.DesktopInstallAsync(globalDirectory),
                 AppInstaller.AppsInstallAsync(globalDirectory, customAppsJsonPath),
                 AppInstaller.AppsInstallSilentAsync(globalDirectory),
-                SteamManager.ShutdownServerAsync(globalDirectory)
+                SteamManager.InstallSalsaSteamAsync(globalDirectory)
             );
 
             await installs;
