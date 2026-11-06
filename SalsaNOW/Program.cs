@@ -23,7 +23,7 @@ namespace SalsaNOW
             SteamDetach.RemoveSteamEnvironments();
             if (await BackupsApp.HandleCommandLineAsync(args)) return;
 
-            string salsaNowTitle = "SalsaNOW V1.6.9.3 - by dpadGuy";
+            string salsaNowTitle = "SalsaNOW V1.6.9.3-hotfix2 - by dpadGuy";
 
             Console.Title = salsaNowTitle;
 
@@ -108,13 +108,20 @@ namespace SalsaNOW
                 DesktopInstaller.DesktopInstallAsync(globalDirectory),
                 AppInstaller.AppsInstallAsync(globalDirectory, customAppsJsonPath),
                 AppInstaller.AppsInstallSilentAsync(globalDirectory),
-                SteamManager.InstallSalsaSteamAsync(globalDirectory)
+                StartSteamAsync(globalDirectory)
             );
 
             await installs;
             await FinalBackgroundTasks.FinalTasks(globalDirectory, cts.Token);
 
             try { await Task.Delay(Timeout.Infinite, cts.Token); } catch (TaskCanceledException) { }
+        }
+
+        // Moves any SalsaSteam games back into the original Steam first, then starts Steam the old way.
+        static async Task StartSteamAsync(string globalDirectory)
+        {
+            await SalsaSteamRevert.RunAsync(globalDirectory);
+            await SteamManager.ShutdownServerAsync(globalDirectory);
         }
 
         static async Task Startup()
