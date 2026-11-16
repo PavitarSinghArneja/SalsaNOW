@@ -85,8 +85,17 @@ namespace SalsaNOW
                 }
 
                 // Its own console. SalsaNOW does not inherit the handles and does not read the output.
-                StartInNewConsole(exe, globalDirectory);
-                SalsaLogger.Steam("64-bit Steam enabled. Started " + exe + " in a new window.");
+
+                if (SalsaSettings.SteamSilentLaunch)
+                {
+                    StartInNewConsole(exe, globalDirectory, "true");
+                    SalsaLogger.Steam("64-bit Steam enabled. Started " + exe + " silently.");
+                }
+                else
+                {
+                    StartInNewConsole(exe, globalDirectory, "false");
+                    SalsaLogger.Steam("64-bit Steam enabled. Started " + exe + " in a new window.");
+                }
             }
             catch (Exception ex)
             {
@@ -100,7 +109,7 @@ namespace SalsaNOW
                 string batch = Path.Combine(globalDirectory, "StartupBatch.bat");
                 if (File.Exists(batch))
                 {
-                    try { Process.Start(new ProcessStartInfo { FileName = batch, UseShellExecute = true }); }
+                    try { SteamDetach.StartClean(new ProcessStartInfo { FileName = "cmd.exe", Arguments = "/c \"" + batch + "\"" }); }
                     catch (Exception ex) { SalsaLogger.Error("StartupBatch.bat failed to start: " + ex.Message); }
                 }
             }
@@ -240,13 +249,19 @@ namespace SalsaNOW
 
         // CREATE_NEW_CONSOLE gives SalsaSteamStartup its own window. Handles are not inherited, so its output
         // never arrives on SalsaNOW's console and nothing here reads it.
-        private static void StartInNewConsole(string exe, string workingDirectory)
+        // WARNING: lpEnvironment must stay null. SalsaSteam and every program it starts must inherit
+        // SalsaNOW's environment unchanged. Do not pass a custom environment unless it is really, really needed.
+        private static void StartInNewConsole(string exe, string workingDirectory, string silent)
         {
             var startup = new STARTUPINFO();
             startup.cb = Marshal.SizeOf(startup);
 
             PROCESS_INFORMATION process;
+            // "true" is the same steamSilentLaunch switch as normal Steam. SalsaSteamStartup turns it into -silent.
+            // lpEnvironment stays null either way.
             string commandLine = "\"" + exe + "\"";
+            if (string.Equals(silent, "true", StringComparison.OrdinalIgnoreCase))
+                commandLine += " -silent";
             if (!CreateProcess(exe, commandLine, IntPtr.Zero, IntPtr.Zero, false,
                 CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP, IntPtr.Zero, workingDirectory, ref startup, out process))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
